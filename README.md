@@ -1,5 +1,9 @@
 # Azure APIM Cross-Tenant Signup Bypass
 
+## Security Advisory
+
+**[GHSA-vcwf-73jp-r7mv](https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass/security/advisories/GHSA-vcwf-73jp-r7mv)**
+
 ## Summary
 
 A security vulnerability in Azure API Management (APIM) Developer Portal allows attackers to register accounts on any APIM instance that has Basic Authentication enabled, even when administrators have disabled user signup in the portal UI.
@@ -8,15 +12,15 @@ This bypass enables cross-tenant account creation, potentially allowing unauthor
 
 ## Disclosure Timeline
 
-| Date | Action |
-|------|--------|
-| 2025-09-30 | Vulnerability discovered |
-| 2025-09-30 | Initial report submitted to MSRC |
-| 2025-10-30 | MSRC response: Closed as "not a vulnerability" |
-| 2025-11-01 | Second report submitted to MSRC with additional details |
-| 2025-11-20 | MSRC response: Closed as "by design" |
-| 2025-11-20 | Reported to CERT-FI |
-| 2025-11-26 | Public disclosure |
+|Date      |Action                                                 |
+|----------|-------------------------------------------------------|
+|2025-09-30|Vulnerability discovered                               |
+|2025-09-30|Initial report submitted to MSRC                       |
+|2025-10-30|MSRC response: Closed as “not a vulnerability”         |
+|2025-11-01|Second report submitted to MSRC with additional details|
+|2025-11-20|MSRC response: Closed as “by design”                   |
+|2025-11-20|Reported to CERT-FI                                    |
+|2025-11-26|Public disclosure                                      |
 
 ## Vulnerability Details
 
@@ -31,28 +35,28 @@ The underlying signup API endpoint remains active and accepts registration reque
 Two issues combine to create this vulnerability:
 
 1. **UI-only restriction**: Disabling signup only hides the form in the portal UI. The backend signup API remains active and accessible.
-
-2. **No tenant validation**: The signup API does not validate that the request originates from the same tenant's portal. Requests can be crafted from any source to register on any vulnerable instance.
+1. **No tenant validation**: The signup API does not validate that the request originates from the same tenant’s portal. Requests can be crafted from any source to register on any vulnerable instance.
 
 ### Attack Vector
 
 The attack requires two APIM instances:
 
-1. **Attacker's instance**: Any APIM Developer Portal with signup enabled (or attacker's own APIM instance)
-2. **Target instance**: Victim's APIM Developer Portal with signup "disabled" in UI but Basic Authentication still configured
+1. **Attacker’s instance**: Any APIM Developer Portal with signup enabled (or attacker’s own APIM instance)
+1. **Target instance**: Victim’s APIM Developer Portal with signup “disabled” in UI but Basic Authentication still configured
 
 **Steps:**
 
 1. Attacker accesses their own APIM Developer Portal signup page (where signup is enabled)
-2. Attacker fills in the signup form and intercepts the request (e.g., using Burp Suite)
-3. Attacker changes the `Host` header from their instance to the target instance
-4. Attacker submits the modified request
-5. Account is created on the target instance despite signup being "disabled" in their admin console
-6. Attacker gains access to the target Developer Portal as a registered user
+1. Attacker fills in the signup form and intercepts the request (e.g., using Burp Suite)
+1. Attacker changes the `Host` header from their instance to the target instance
+1. Attacker submits the modified request
+1. Account is created on the target instance despite signup being “disabled” in their admin console
+1. Attacker gains access to the target Developer Portal as a registered user
 
 **Key technical detail:** The cross-tenant bypass works by manipulating the `Host` header in the signup POST request. The `/signup` endpoint processes requests based on the Host header without validating tenant boundaries.
 
 Example request manipulation:
+
 ```
 POST /signup HTTP/1.1
 Host: target-apim.developer.azure-api.net   <-- Changed from attacker's instance
@@ -70,13 +74,13 @@ The core issue: disabling signup in the UI does not disable the underlying API. 
 - **Bypass of administrative controls** - signup restrictions are ineffective
 - **Access to API documentation** that may contain sensitive internal information
 - **Potential to request API subscription keys** depending on portal configuration
-- **Internal portal exposure** - external attackers can register on "internal" portals
+- **Internal portal exposure** - external attackers can register on “internal” portals
 
 ## Affected Configurations
 
 Your APIM instance is vulnerable if:
 
-- Basic Authentication identity provider is configured (even if signup is "disabled" in UI)
+- Basic Authentication identity provider is configured (even if signup is “disabled” in UI)
 - The Developer Portal is deployed and accessible
 
 Your APIM instance is NOT vulnerable if:
@@ -195,19 +199,17 @@ nuclei -t azure-apim-signup-bypass.yaml -u https://target.developer.azure-api.ne
 ### Immediate Actions
 
 1. **Remove Basic Authentication identity provider completely** in Azure Portal:
-   - Navigate to your APIM instance
-   - Go to Developer Portal -> Identities
-   - Delete the "Username and password" identity provider entirely
-   - Note: Simply disabling signup in UI is NOT sufficient
-
-2. **Audit existing accounts**:
-   - Review all Developer Portal user accounts
-   - Look for accounts created via API (check creation timestamps and patterns)
-   - Remove any unauthorized accounts
-
-3. **Enable Azure AD authentication**:
-   - Configure Azure AD as the sole identity provider
-   - This enforces proper tenant boundaries
+- Navigate to your APIM instance
+- Go to Developer Portal -> Identities
+- Delete the “Username and password” identity provider entirely
+- Note: Simply disabling signup in UI is NOT sufficient
+1. **Audit existing accounts**:
+- Review all Developer Portal user accounts
+- Look for accounts created via API (check creation timestamps and patterns)
+- Remove any unauthorized accounts
+1. **Enable Azure AD authentication**:
+- Configure Azure AD as the sole identity provider
+- This enforces proper tenant boundaries
 
 ### Long-term Recommendations
 
@@ -216,11 +218,11 @@ nuclei -t azure-apim-signup-bypass.yaml -u https://target.developer.azure-api.ne
 - Monitor Developer Portal signup activity
 - Regularly audit portal user accounts
 
-## Microsoft's Response
+## Microsoft’s Response
 
 Microsoft Security Response Center (MSRC) was notified twice about this vulnerability. Both reports were closed with the following determination:
 
-> "By design"
+> “By design”
 
 MSRC does not consider this a security vulnerability despite the bypass of administrative controls and cross-tenant implications.
 
@@ -245,6 +247,6 @@ MIT License - See LICENSE file for details.
 
 ## References
 
-- [Blog Post: When "Disabled" Doesn't Mean Disabled](https://www.itewiki.fi/p/when-disabled-doesn-t-mean-disabled-azure-apim-cross-tenant-signup-bypass)
+- [Blog Post: When “Disabled” Doesn’t Mean Disabled](https://www.itewiki.fi/p/when-disabled-doesn-t-mean-disabled-azure-apim-cross-tenant-signup-bypass)
 - [Azure API Management Documentation](https://docs.microsoft.com/en-us/azure/api-management/)
 - [APIM Developer Portal Overview](https://docs.microsoft.com/en-us/azure/api-management/api-management-howto-developer-portal)

@@ -3,7 +3,7 @@
 Azure APIM Vulnerability Verification Script
 Checks if an APIM instance is vulnerable to cross-tenant signup bypass
 
-Author: Mihalis Haatainen, Bountyy Oy
+Author: Mihalis Haatainen, Bountyy Oy, www.bountyy.fi
 Date: November 26, 2025
 """
 

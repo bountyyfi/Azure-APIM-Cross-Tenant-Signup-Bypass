@@ -3,7 +3,7 @@
 Azure APIM Vulnerability Verification Script
 Checks if an APIM instance is vulnerable to cross-tenant signup bypass
 
-Author: Mihalis Haatainen, Bountyy Oy, www.bountyy.fi
+Author: Mihalis Haatainen, Bountyy Oy
 Date: November 26, 2025
 """
 
@@ -56,112 +56,93 @@ class APIMVulnerabilityChecker:
         except Exception as e:
             return False, f"Error accessing signup endpoint: {str(e)}"
 
-    def get_management_url(self) -> str:
-        """Convert developer portal URL to management API URL."""
-        # https://xyz.developer.azure-api.net -> https://xyz.management.azure-api.net
-        return self.url.replace('.developer.azure-api.net', '.management.azure-api.net')
-    
     def check_basic_auth(self) -> Tuple[bool, str]:
         """Check if Basic Authentication signup API is accessible (bypassing UI)."""
         self.log_check("Checking if Basic Auth signup API is accessible...")
         
-        # Test payload - obviously fake, just probing endpoint behavior
+        # Test payload - fake captcha will fail but endpoint will respond if active
         signup_payload = {
-            'email': 'vuln-probe-test@nonexistent-invalid-domain.test',
-            'password': 'VulnProbe123!',
-            'firstName': 'Probe',
-            'lastName': 'Test'
+            "challenge": {
+                "testCaptchaRequest": {
+                    "challengeId": "00000000-0000-0000-0000-000000000000",
+                    "inputSolution": "AAAAAA"
+                },
+                "azureRegion": "NorthCentralUS",
+                "challengeType": "visual"
+            },
+            "signupData": {
+                "email": "vuln-probe-test@nonexistent-invalid-domain.test",
+                "firstName": "Probe",
+                "lastName": "Test",
+                "password": "VulnProbe123!",
+                "confirmation": "signup",
+                "appType": "developerPortal"
+            }
         }
         
         headers = {
             'Content-Type': 'application/json',
-            'Accept': 'application/json',
+            'Accept': '*/*',
             'Origin': self.url,
             'Referer': f'{self.url}/signup'
         }
         
-        # Known APIM signup API paths to try
-        api_paths = [
-            # Portal API paths
-            '/identity/basic/signup',
-            '/api/identity/basic/signup',
-            '/portal/api/identity/basic/signup',
-            '/developer/identity/basic/signup', 
-            '/portal/identity/basic/signup',
-            '/developerportal/identity/basic/signup',
+        try:
+            api_url = f'{self.url}/signup'
+            if self.verbose:
+                print(f"    Trying: POST {api_url}")
             
-            # Alternative patterns
-            '/identity/signup',
-            '/api/identity/signup',
-            '/api/signup',
-            '/users/signup',
-            '/account/signup',
-            '/register',
-            '/api/register',
+            response = self.session.post(
+                api_url,
+                json=signup_payload,
+                timeout=10,
+                headers=headers
+            )
             
-            # Management API style
-            '/users/identities/basic',
-            '/subscriptions/users',
-        ]
-        
-        management_url = self.get_management_url()
-        
-        # Try on both developer portal and management endpoints
-        base_urls = [self.url, management_url]
-        
-        for base in base_urls:
-            for path in api_paths:
-                try:
-                    api_url = f'{base}{path}'
-                    if self.verbose:
-                        print(f"    Trying: POST {api_url}")
-                    
-                    response = self.session.post(
-                        api_url,
-                        json=signup_payload,
-                        timeout=10,
-                        headers=headers
-                    )
-                    
-                    if self.verbose:
-                        print(f"      -> {response.status_code}")
-                    
-                    # 404 = endpoint doesn't exist, skip
-                    if response.status_code == 404:
-                        continue
-                    
-                    response_text = response.text.lower()
-                    
-                    # These responses indicate the signup API EXISTS and processes requests
-                    if response.status_code == 400:
-                        # Validation error = endpoint exists and validates input
-                        if 'email' in response_text or 'password' in response_text or 'invalid' in response_text:
-                            return True, f"Basic Auth signup API ACTIVE at {path}"
-                        return True, f"Basic Auth signup API responds at {path} (400)"
-                    
-                    elif response.status_code == 409:
-                        # Conflict = user exists = signup works
-                        return True, f"Basic Auth signup API ACTIVE at {path} (409 conflict)"
-                    
-                    elif response.status_code == 200 or response.status_code == 201:
-                        return True, f"Basic Auth signup API ACCEPTS requests at {path}"
-                    
-                    elif response.status_code == 401 or response.status_code == 403:
-                        # Auth required but endpoint exists
-                        continue
-                    
-                    elif response.status_code == 422:
-                        return True, f"Basic Auth signup API validates at {path} (422)"
-                    
-                    else:
-                        self.log_info(f"  {path} returned {response.status_code}")
-                        
-                except requests.exceptions.Timeout:
-                    continue
-                except Exception as e:
-                    continue
-        
-        return False, "Basic Auth signup API not found or not accessible"
+            if self.verbose:
+                print(f"      -> {response.status_code}")
+                print(f"      -> {response.text[:200]}...")
+            
+            response_text = response.text.lower()
+            
+            # 404 = endpoint doesn't exist
+            if response.status_code == 404:
+                # Check if it's HTML 404 page vs JSON 404
+                if 'html' in response.text.lower() or '<!doctype' in response.text.lower():
+                    return False, "Signup API not found (HTML 404)"
+                return False, "Signup API not found (404)"
+            
+            # These responses indicate the signup API EXISTS and processes requests
+            # Even captcha errors prove the endpoint is active
+            if response.status_code == 400:
+                if 'captcha' in response_text or 'challenge' in response_text:
+                    return True, "Basic Auth signup API ACTIVE (captcha validation)"
+                if 'email' in response_text or 'password' in response_text or 'invalid' in response_text:
+                    return True, "Basic Auth signup API ACTIVE (input validation)"
+                return True, f"Basic Auth signup API responds (400)"
+            
+            elif response.status_code == 409:
+                return True, "Basic Auth signup API ACTIVE (409 conflict)"
+            
+            elif response.status_code == 200 or response.status_code == 201:
+                return True, "Basic Auth signup API ACCEPTS requests"
+            
+            elif response.status_code == 401 or response.status_code == 403:
+                return True, f"Basic Auth signup API responds ({response.status_code})"
+            
+            elif response.status_code == 422:
+                return True, "Basic Auth signup API validates (422)"
+            
+            else:
+                self.log_info(f"  /signup returned {response.status_code}")
+                return None, f"Signup returned {response.status_code} - manual check recommended"
+                
+        except requests.exceptions.SSLError as e:
+            return None, f"SSL_ERROR: {str(e)}"
+        except requests.exceptions.Timeout:
+            return None, "Connection timeout"
+        except Exception as e:
+            return None, f"Error: {str(e)}"
 
     def check_signup_disabled(self) -> Tuple[bool, str]:
         """Check if signup is disabled in UI (but API might still work = vulnerable)."""

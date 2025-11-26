@@ -92,6 +92,9 @@ python apim_vuln_checker.py https://your-apim.developer.azure-api.net
 # Verbose output
 python apim_vuln_checker.py https://your-apim.developer.azure-api.net -v
 
+# Skip SSL verification
+python apim_vuln_checker.py https://your-apim.developer.azure-api.net -k
+
 # JSON output
 python apim_vuln_checker.py https://your-apim.developer.azure-api.net --json
 ```
@@ -99,6 +102,14 @@ python apim_vuln_checker.py https://your-apim.developer.azure-api.net --json
 ### Example Output
 
 ```
+   ___                 __              ____      
+  / _ )___  __ _____  / /___ ____ __  / __ \__ __
+ / _  / _ \/ // / _ \/ __/ // / // / / /_/ / // /
+/____/\___/\_,_/_//_/\__/\_, /\_, /  \____/\_, / 
+                        /___//___/        /___/  
+    
+    Author: Mihalis Haatainen, Bountyy Oy - www.bountyy.fi
+
 ======================================================================
 Azure APIM Vulnerability Checker
 Cross-Tenant Signup Bypass Detection
@@ -107,7 +118,7 @@ Cross-Tenant Signup Bypass Detection
 [?] Checking signup endpoint accessibility...
 [i] Signup endpoint is accessible
 [?] Checking if Basic Auth signup API is accessible...
-[!] Basic Auth signup API ACTIVE at /identity/basic/signup
+[!] Basic Auth signup API ACTIVE at /developer/identity/basic/signup
 [?] Checking if signup is hidden/disabled in UI...
 [i] Signup page returns 404 (hidden in UI)
 
@@ -122,7 +133,7 @@ Risk Level: CRITICAL - VULNERABLE TO SIGNUP BYPASS
 Detailed Checks:
 
   [!] signup_ui: Signup endpoint is accessible
-  [!] basic_auth_api: Basic Auth signup API ACTIVE at /identity/basic/signup
+  [!] basic_auth_api: Basic Auth signup API ACTIVE at /developer/identity/basic/signup
   [+] signup_ui_hidden: Signup page returns 404 (hidden in UI)
 
 Recommendations:
@@ -138,6 +149,34 @@ Immediate actions:
   3. Review user creation logs - check for API-based registrations
   4. Implement Azure AD authentication only
 ```
+
+## Nuclei Template
+
+A Nuclei template is provided for automated scanning.
+
+### Usage
+
+```bash
+# Single target
+nuclei -t azure-apim-signup-bypass.yaml -u https://target.developer.azure-api.net
+
+# Multiple targets from file
+nuclei -t azure-apim-signup-bypass.yaml -l targets.txt
+
+# With proxy (for debugging)
+nuclei -t azure-apim-signup-bypass.yaml -u https://target.developer.azure-api.net -proxy http://127.0.0.1:8080
+
+# Skip SSL verification
+nuclei -t azure-apim-signup-bypass.yaml -u https://target.developer.azure-api.net -insecure
+```
+
+### Template Details
+
+- Checks both `/developer/identity/basic/signup` and `/identity/basic/signup` endpoints
+- Uses randomized probe email per scan
+- Stops at first match for efficiency
+- CVSS Score: 6.5 (Medium-High)
+- CWE-284: Improper Access Control
 
 ## Mitigation
 
@@ -175,7 +214,8 @@ MSRC does not consider this a security vulnerability despite the bypass of admin
 
 ## Files
 
-- `apim_vuln_checker.py` - Vulnerability verification script
+- `apim_vuln_checker.py` - Python vulnerability verification script
+- `azure-apim-signup-bypass.yaml` - Nuclei template for automated scanning
 - `README.md` - This file
 
 ## Author

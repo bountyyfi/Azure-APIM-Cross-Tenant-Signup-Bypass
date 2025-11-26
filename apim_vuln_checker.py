@@ -51,6 +51,8 @@ class APIMVulnerabilityChecker:
                 return True, "Signup endpoint is accessible"
             else:
                 return False, f"Signup endpoint returned {response.status_code}"
+        except requests.exceptions.SSLError as e:
+            return None, f"SSL_ERROR: {str(e)}"
         except Exception as e:
             return False, f"Error accessing signup endpoint: {str(e)}"
 
@@ -211,6 +213,14 @@ class APIMVulnerabilityChecker:
             'message': signup_ui_msg
         }
         
+        # Check for SSL error - can't determine vulnerability without connection
+        if signup_ui_msg.startswith("SSL_ERROR:"):
+            self.log_vuln("SSL certificate verification failed")
+            self.log_info("Try running with -k flag to skip SSL verification")
+            results['risk_level'] = 'SSL Error'
+            results['ssl_error'] = True
+            return results
+        
         if signup_ui_accessible:
             self.log_info(signup_ui_msg)
         else:
@@ -274,6 +284,8 @@ def print_results(results: dict):
         print(f"Risk Level: {Fore.RED}CRITICAL - VULNERABLE TO SIGNUP BYPASS{Style.RESET_ALL}")
     elif results['risk_level'] == 'Attack Source':
         print(f"Risk Level: {Fore.YELLOW}ATTACK SOURCE - CAN BE USED FOR CROSS-TENANT BYPASS{Style.RESET_ALL}")
+    elif results['risk_level'] == 'SSL Error':
+        print(f"Risk Level: {Fore.RED}UNKNOWN - SSL ERROR PREVENTED SCAN{Style.RESET_ALL}")
     elif results['risk_level'] == 'High':
         print(f"Risk Level: {Fore.RED}HIGH - LIKELY VULNERABLE{Style.RESET_ALL}")
     elif results['risk_level'] == 'Medium':
@@ -287,10 +299,14 @@ def print_results(results: dict):
         status = check_data['status']
         message = check_data['message']
 
+        # Clean up SSL error messages for display
+        if message.startswith("SSL_ERROR:"):
+            message = "SSL certificate verification failed"
+
         if status is True:
-            print(f"  {Fore.RED}[✗]{Style.RESET_ALL} {check_name}: {message}")
+            print(f"  {Fore.RED}[!]{Style.RESET_ALL} {check_name}: {message}")
         elif status is False:
-            print(f"  {Fore.GREEN}[✓]{Style.RESET_ALL} {check_name}: {message}")
+            print(f"  {Fore.GREEN}[+]{Style.RESET_ALL} {check_name}: {message}")
         else:
             print(f"  {Fore.YELLOW}[?]{Style.RESET_ALL} {check_name}: {message}")
 
@@ -334,6 +350,16 @@ def print_results(results: dict):
         print("  - This is a potential liability")
         print("  - Consider disabling Basic Auth if not needed")
         print("  - Or ensure proper email domain restrictions")
+    elif results.get('ssl_error'):
+        print(f"{Fore.RED}SSL CERTIFICATE ERROR{Style.RESET_ALL}\n")
+        print("Could not connect to target due to SSL certificate verification failure.")
+        print("This may be due to:")
+        print("  - Self-signed certificate")
+        print("  - Expired certificate")
+        print("  - Corporate proxy/firewall interception")
+        print("  - Missing intermediate certificates\n")
+        print(f"To scan anyway, run with {Fore.YELLOW}-k{Style.RESET_ALL} flag:")
+        print(f"  python apim_vuln_checker.py -k {results['url']}")
     else:
         print(f"{Fore.GREEN}Your instance appears to have reduced risk.{Style.RESET_ALL}")
         print("However, continue monitoring:")

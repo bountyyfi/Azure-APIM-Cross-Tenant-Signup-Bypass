@@ -44,12 +44,25 @@ The attack requires two APIM instances:
 **Steps:**
 
 1. Attacker accesses their own APIM Developer Portal signup page (where signup is enabled)
-2. Attacker modifies the signup request to target a different APIM instance's backend
-3. Attacker submits registration request using the target's API endpoint
-4. Account is created on the target instance despite signup being "disabled" in their admin console
-5. Attacker gains access to the target Developer Portal as a registered user
+2. Attacker fills in the signup form and intercepts the request (e.g., using Burp Suite)
+3. Attacker changes the `Host` header from their instance to the target instance
+4. Attacker submits the modified request
+5. Account is created on the target instance despite signup being "disabled" in their admin console
+6. Attacker gains access to the target Developer Portal as a registered user
 
-The core issue: disabling signup in the UI does not disable the underlying API. The API endpoint accepts cross-tenant requests.
+**Key technical detail:** The cross-tenant bypass works by manipulating the `Host` header in the signup POST request. The `/signup` endpoint processes requests based on the Host header without validating tenant boundaries.
+
+Example request manipulation:
+```
+POST /signup HTTP/1.1
+Host: target-apim.developer.azure-api.net   <-- Changed from attacker's instance
+Origin: https://attacker-apim.developer.azure-api.net
+Content-Type: application/json
+
+{"challenge":{...},"signupData":{"email":"attacker@email.com",...}}
+```
+
+The core issue: disabling signup in the UI does not disable the underlying API. The API endpoint accepts cross-tenant requests based on the Host header.
 
 ## Impact
 
@@ -118,7 +131,7 @@ Cross-Tenant Signup Bypass Detection
 [?] Checking signup endpoint accessibility...
 [i] Signup endpoint is accessible
 [?] Checking if Basic Auth signup API is accessible...
-[!] Basic Auth signup API ACTIVE at /developer/identity/basic/signup
+[!] Basic Auth signup API ACTIVE (captcha validation)
 [?] Checking if signup is hidden/disabled in UI...
 [i] Signup page returns 404 (hidden in UI)
 
@@ -133,7 +146,7 @@ Risk Level: CRITICAL - VULNERABLE TO SIGNUP BYPASS
 Detailed Checks:
 
   [!] signup_ui: Signup endpoint is accessible
-  [!] basic_auth_api: Basic Auth signup API ACTIVE at /developer/identity/basic/signup
+  [!] basic_auth_api: Basic Auth signup API ACTIVE (captcha validation)
   [+] signup_ui_hidden: Signup page returns 404 (hidden in UI)
 
 Recommendations:
@@ -172,9 +185,8 @@ nuclei -t azure-apim-signup-bypass.yaml -u https://target.developer.azure-api.ne
 
 ### Template Details
 
-- Checks both `/developer/identity/basic/signup` and `/identity/basic/signup` endpoints
-- Uses randomized probe email per scan
-- Stops at first match for efficiency
+- Sends POST request to `/signup` endpoint with test captcha data
+- Detects active signup API by checking for captcha/validation error responses
 - CVSS Score: 6.5 (Medium-High)
 - CWE-284: Improper Access Control
 

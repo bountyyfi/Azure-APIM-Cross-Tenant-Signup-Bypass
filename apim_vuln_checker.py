@@ -3,7 +3,7 @@
 Azure APIM Vulnerability Verification Script
 Checks if an APIM instance is vulnerable to cross-tenant signup bypass
 
-Author: Mihalis Haatainen, Bountyy Oy, www.bountyy.fi
+Author: Mihalis Haatainen, Bountyy Oy
 Date: November 26, 2025
 """
 
@@ -16,13 +16,19 @@ init(autoreset=True)
 
 
 class APIMVulnerabilityChecker:
-    def __init__(self, url: str, verbose: bool = False):
+    def __init__(self, url: str, verbose: bool = False, verify_ssl: bool = True):
         self.url = url.rstrip('/')
         self.verbose = verbose
+        self.verify_ssl = verify_ssl
         self.session = requests.Session()
+        self.session.verify = verify_ssl
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
+        
+        if not verify_ssl:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def log_check(self, message: str):
         print(f"{Fore.BLUE}[?]{Style.RESET_ALL} {message}")
@@ -183,12 +189,17 @@ class APIMVulnerabilityChecker:
         The vulnerability: Basic Auth signup API works even when UI hides/disables signup.
         This allows cross-tenant account creation by bypassing UI restrictions.
         
+        Two scenarios:
+        1. TARGET: Signup disabled in UI but API works = vulnerable to attack
+        2. ATTACK SOURCE: Signup enabled = can be used to attack other instances
+        
         Returns:
             Dictionary with check results
         """
         results = {
             'url': self.url,
             'vulnerable': False,
+            'attack_source': False,
             'risk_level': 'Unknown',
             'checks': {}
         }
@@ -234,17 +245,16 @@ class APIMVulnerabilityChecker:
             self.log_info(signup_hidden_msg)
         
         # Determine vulnerability
-        # THE BYPASS: API works even when UI is disabled
         if basic_auth_api:
             if signup_hidden:
-                # UI disabled but API works = VULNERABLE (the bypass)
+                # UI disabled but API works = VULNERABLE TARGET
                 results['vulnerable'] = True
                 results['risk_level'] = 'Critical'
             else:
-                # UI enabled and API works = basic auth is intentionally enabled
-                # Still risky but not the "bypass" vulnerability
-                results['vulnerable'] = True
-                results['risk_level'] = 'Medium'
+                # UI enabled and API works = ATTACK SOURCE
+                # Can be used to register on OTHER vulnerable instances
+                results['attack_source'] = True
+                results['risk_level'] = 'Attack Source'
         else:
             results['risk_level'] = 'Low'
         
@@ -262,6 +272,8 @@ def print_results(results: dict):
     # Risk level
     if results['risk_level'] == 'Critical':
         print(f"Risk Level: {Fore.RED}CRITICAL - VULNERABLE TO SIGNUP BYPASS{Style.RESET_ALL}")
+    elif results['risk_level'] == 'Attack Source':
+        print(f"Risk Level: {Fore.YELLOW}ATTACK SOURCE - CAN BE USED FOR CROSS-TENANT BYPASS{Style.RESET_ALL}")
     elif results['risk_level'] == 'High':
         print(f"Risk Level: {Fore.RED}HIGH - LIKELY VULNERABLE{Style.RESET_ALL}")
     elif results['risk_level'] == 'Medium':
@@ -287,7 +299,7 @@ def print_results(results: dict):
 
     if results['vulnerable']:
         if results['risk_level'] == 'Critical':
-            print(f"{Fore.RED}⚠ CRITICAL: SIGNUP BYPASS VULNERABILITY CONFIRMED{Style.RESET_ALL}\n")
+            print(f"{Fore.RED}CRITICAL: SIGNUP BYPASS VULNERABILITY CONFIRMED{Style.RESET_ALL}\n")
             print("The Basic Auth signup API is accessible even though UI hides signup.")
             print("Attackers can register accounts by calling the API directly.\n")
             print("Immediate actions:")
@@ -296,7 +308,7 @@ def print_results(results: dict):
             print("  3. Review user creation logs - check for API-based registrations")
             print("  4. Implement Azure AD authentication only")
         else:
-            print(f"{Fore.YELLOW}⚠ MEDIUM RISK: BASIC AUTH ENABLED{Style.RESET_ALL}\n")
+            print(f"{Fore.YELLOW}MEDIUM RISK: BASIC AUTH ENABLED{Style.RESET_ALL}\n")
             print("Basic Authentication is intentionally enabled (signup visible in UI).")
             print("This is a configuration choice but increases attack surface.\n")
             print("Recommended actions:")
@@ -308,6 +320,20 @@ def print_results(results: dict):
         print("  - Migrate to Azure AD authentication")
         print("  - Disable Basic Auth (after migration planning)")
         print("  - Enable MFA for all portal users")
+    elif results.get('attack_source'):
+        print(f"{Fore.YELLOW}ATTACK SOURCE IDENTIFIED{Style.RESET_ALL}\n")
+        print("This instance has Basic Auth signup ENABLED.")
+        print("It can be used to perform cross-tenant signup bypass attacks")
+        print("against OTHER APIM instances that have signup 'disabled' in UI.\n")
+        print("How the attack works:")
+        print("  1. Attacker uses this instance's signup form")
+        print("  2. Intercepts the signup request")
+        print("  3. Modifies target to another APIM instance's API endpoint")
+        print("  4. Creates unauthorized account on target instance\n")
+        print("If this is your instance:")
+        print("  - This is a potential liability")
+        print("  - Consider disabling Basic Auth if not needed")
+        print("  - Or ensure proper email domain restrictions")
     else:
         print(f"{Fore.GREEN}Your instance appears to have reduced risk.{Style.RESET_ALL}")
         print("However, continue monitoring:")
@@ -340,6 +366,12 @@ def main():
         help='Show all endpoints being checked'
     )
 
+    parser.add_argument(
+        '-k', '--insecure',
+        action='store_true',
+        help='Skip SSL certificate verification'
+    )
+
     args = parser.parse_args()
 
     # Banner
@@ -358,7 +390,7 @@ def main():
     print(f"{'=' * 70}{Style.RESET_ALL}\n")
 
     # Run checks
-    checker = APIMVulnerabilityChecker(args.url, verbose=args.verbose)
+    checker = APIMVulnerabilityChecker(args.url, verbose=args.verbose, verify_ssl=not args.insecure)
     results = checker.check_vulnerability()
 
     # Output results

@@ -12,7 +12,7 @@ This bypass enables cross-tenant account creation, potentially allowing unauthor
 |------|--------|
 | 2025-09-30 | Vulnerability discovered |
 | 2025-09-30 | Initial report submitted to MSRC |
-| 2025-10-30 | MSRC response: Closed as "not a vulnerability" |
+| 2025-10-30 | MSRC response: Closed as "not a security vulnerability" |
 | 2025-11-01 | Second report submitted to MSRC with additional details |
 | 2025-11-20 | MSRC response: Closed as "by design" |
 | 2025-11-20 | Reported to CERT-FI |

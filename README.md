@@ -91,6 +91,92 @@ Your APIM instance is NOT vulnerable if:
 
 **Key point:** Disabling signup in the Azure Portal UI is NOT sufficient. The Basic Authentication identity provider must be completely removed to prevent cross-tenant signup bypass.
 
+## Azure Resource Properties
+
+Use these property values to identify vulnerable APIM instances via Azure Resource Graph, ARM templates, or Azure Policy.
+
+### Vulnerable Configuration Properties
+
+| Property Path | Vulnerable Value | Description |
+|---------------|------------------|-------------|
+| `properties.developerPortalStatus` | `Enabled` | Developer Portal is accessible |
+| `sku.name` | `Developer`, `Basic`, `Standard`, `Premium` | Non-Consumption tiers (Consumption tier has limited portal features) |
+
+### Identity Provider Check (Sub-resource)
+
+The Basic Authentication identity provider is a separate resource under the APIM instance:
+
+```
+Resource Type: Microsoft.ApiManagement/service/identityProviders
+Name: basic
+```
+
+**Vulnerable if exists:** The presence of a `basic` identity provider resource indicates Basic Authentication is configured.
+
+### Portal Signup Settings (Sub-resource)
+
+```
+Resource Type: Microsoft.ApiManagement/service/portalsettings/signup
+Property: properties.enabled
+```
+
+| Property | Value | Meaning |
+|----------|-------|---------|
+| `properties.enabled` | `true` | Signup visible in UI |
+| `properties.enabled` | `false` | Signup hidden in UI (API still works if Basic Auth exists!) |
+
+### Azure Resource Graph Query
+
+Use this query to find potentially vulnerable APIM instances:
+
+```kusto
+resources
+| where type == "microsoft.apimanagement/service"
+| where properties.developerPortalStatus == "Enabled"
+| where sku.name != "Consumption"
+| project name, resourceGroup, subscriptionId, location, sku.name, properties.developerPortalStatus
+```
+
+To check for Basic Auth identity providers:
+
+```kusto
+resources
+| where type == "microsoft.apimanagement/service/identityproviders"
+| where name endswith "/basic"
+| project apimInstance=tostring(split(id, "/providers/Microsoft.ApiManagement/service/")[1]), resourceGroup, subscriptionId
+```
+
+### Azure CLI Commands
+
+Check Developer Portal status:
+```bash
+az apim show --name <apim-name> --resource-group <rg-name> --query "{name:name, portalStatus:developerPortalStatus, sku:sku.name}"
+```
+
+List identity providers (check for 'basic'):
+```bash
+az apim identity-provider list --resource-group <rg-name> --service-name <apim-name> --query "[].name"
+```
+
+Check signup settings:
+```bash
+az rest --method get --url "https://management.azure.com/subscriptions/<sub-id>/resourceGroups/<rg-name>/providers/Microsoft.ApiManagement/service/<apim-name>/portalsettings/signup?api-version=2022-08-01" --query "properties.enabled"
+```
+
+### Summary Table
+
+| Condition | Property/Resource | Vulnerable Value |
+|-----------|-------------------|------------------|
+| Portal enabled | `properties.developerPortalStatus` | `== 'Enabled'` |
+| Non-Consumption SKU | `sku.name` | `!= 'Consumption'` |
+| Basic Auth exists | `identityProviders/basic` resource | Resource exists |
+| Signup hidden (bypass possible) | `portalsettings/signup.properties.enabled` | `== false` (with Basic Auth) |
+
+**Critical combination:** An instance is vulnerable to signup bypass when:
+- `properties.developerPortalStatus == 'Enabled'` AND
+- `identityProviders/basic` resource exists AND
+- `portalsettings/signup.properties.enabled == false`
+
 ## Verification Script
 
 A Python script is provided to check if your APIM instance is vulnerable.

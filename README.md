@@ -184,13 +184,29 @@ A Python script is provided to check if your APIM instance is vulnerable.
 ### Installation
 
 ```bash
+# Basic installation (HTTP probe only)
 pip install requests colorama
+
+# Full installation (includes Azure RM property checks)
+pip install requests colorama azure-identity
 ```
 
 ### Usage
 
+The script supports two modes:
+1. **HTTP Probe** - External black-box check via Developer Portal endpoints
+2. **Azure RM Check** - Internal property check via Azure Resource Manager API
+
 ```bash
+# HTTP probe (external check)
 python apim_vuln_checker.py https://your-apim.developer.azure-api.net
+
+# Azure RM property check (requires az login)
+python apim_vuln_checker.py --azure -s <subscription-id> -g <resource-group> -n <apim-name>
+
+# Combined check (both HTTP probe and Azure RM)
+python apim_vuln_checker.py https://your-apim.developer.azure-api.net \
+    --azure -s <subscription-id> -g <resource-group> -n <apim-name>
 
 # Verbose output
 python apim_vuln_checker.py https://your-apim.developer.azure-api.net -v
@@ -201,6 +217,22 @@ python apim_vuln_checker.py https://your-apim.developer.azure-api.net -k
 # JSON output
 python apim_vuln_checker.py https://your-apim.developer.azure-api.net --json
 ```
+
+### Azure RM Property Checks
+
+When using `--azure` mode, the script queries the Azure Resource Manager API directly to check:
+
+| Property | Vulnerable Value |
+|----------|------------------|
+| `properties.developerPortalStatus` | `== 'Enabled'` |
+| `sku.name` | `!= 'Consumption'` |
+| `identityProviders/basic` resource | Exists |
+| `portalsettings/signup.properties.enabled` | `== false` |
+
+**Prerequisites for Azure RM mode:**
+1. Install `azure-identity`: `pip install azure-identity`
+2. Authenticate with Azure: `az login`
+3. Ensure you have Reader access to the APIM resource
 
 ### Example Output
 

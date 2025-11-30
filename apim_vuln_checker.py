@@ -10,9 +10,309 @@ Date: November 26, 2025
 import argparse
 import requests
 from colorama import Fore, Style, init
-from typing import Tuple
+from typing import Tuple, Optional, Dict, Any
 
 init(autoreset=True)
+
+# Azure RM API version for APIM
+APIM_API_VERSION = "2022-08-01"
+
+
+class AzureRMChecker:
+    """Check APIM properties directly via Azure Resource Manager API."""
+
+    def __init__(self, subscription_id: str, resource_group: str, service_name: str, verbose: bool = False):
+        self.subscription_id = subscription_id
+        self.resource_group = resource_group
+        self.service_name = service_name
+        self.verbose = verbose
+        self.base_url = f"https://management.azure.com/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/Microsoft.ApiManagement/service/{service_name}"
+        self.token = None
+
+    def log_check(self, message: str):
+        print(f"{Fore.BLUE}[?]{Style.RESET_ALL} {message}")
+
+    def log_vuln(self, message: str):
+        print(f"{Fore.RED}[!]{Style.RESET_ALL} {message}")
+
+    def log_safe(self, message: str):
+        print(f"{Fore.GREEN}[✓]{Style.RESET_ALL} {message}")
+
+    def log_info(self, message: str):
+        print(f"{Fore.YELLOW}[i]{Style.RESET_ALL} {message}")
+
+    def get_azure_token(self) -> Optional[str]:
+        """Get Azure access token using DefaultAzureCredential."""
+        try:
+            from azure.identity import DefaultAzureCredential
+            credential = DefaultAzureCredential()
+            token = credential.get_token("https://management.azure.com/.default")
+            return token.token
+        except ImportError:
+            print(f"{Fore.RED}[!]{Style.RESET_ALL} azure-identity package not installed.")
+            print(f"    Install with: pip install azure-identity")
+            return None
+        except Exception as e:
+            print(f"{Fore.RED}[!]{Style.RESET_ALL} Failed to get Azure token: {e}")
+            print(f"    Make sure you're logged in with: az login")
+            return None
+
+    def _make_request(self, url: str) -> Optional[Dict[str, Any]]:
+        """Make authenticated request to Azure RM API."""
+        if not self.token:
+            self.token = self.get_azure_token()
+            if not self.token:
+                return None
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            if self.verbose:
+                print(f"    GET {url}")
+            response = requests.get(url, headers=headers, timeout=30)
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 404:
+                return {"_not_found": True}
+            else:
+                if self.verbose:
+                    print(f"    -> {response.status_code}: {response.text[:200]}")
+                return None
+        except Exception as e:
+            if self.verbose:
+                print(f"    -> Error: {e}")
+            return None
+
+    def check_apim_properties(self) -> Tuple[Optional[bool], str, Dict[str, Any]]:
+        """
+        Check APIM service properties.
+
+        Returns:
+            Tuple of (is_vulnerable_config, message, properties_dict)
+        """
+        self.log_check("Checking APIM service properties via Azure RM...")
+
+        url = f"{self.base_url}?api-version={APIM_API_VERSION}"
+        data = self._make_request(url)
+
+        if data is None:
+            return None, "Failed to query APIM properties", {}
+
+        if data.get("_not_found"):
+            return None, "APIM service not found", {}
+
+        properties = data.get("properties", {})
+        sku = data.get("sku", {})
+
+        result = {
+            "developerPortalStatus": properties.get("developerPortalStatus"),
+            "sku_name": sku.get("name"),
+            "sku_tier": sku.get("tier"),
+        }
+
+        # Check vulnerable conditions
+        portal_enabled = properties.get("developerPortalStatus") == "Enabled"
+        is_consumption = sku.get("name") == "Consumption"
+
+        if portal_enabled:
+            self.log_vuln(f"properties.developerPortalStatus = 'Enabled'")
+        else:
+            self.log_safe(f"properties.developerPortalStatus = '{properties.get('developerPortalStatus')}'")
+
+        if is_consumption:
+            self.log_safe(f"sku.name = 'Consumption' (limited portal features)")
+        else:
+            self.log_info(f"sku.name = '{sku.get('name')}' (full portal features)")
+
+        return portal_enabled and not is_consumption, "APIM properties checked", result
+
+    def check_basic_identity_provider(self) -> Tuple[Optional[bool], str]:
+        """
+        Check if Basic Authentication identity provider exists.
+
+        Returns:
+            Tuple of (exists, message)
+        """
+        self.log_check("Checking for Basic Auth identity provider...")
+
+        url = f"{self.base_url}/identityProviders/basic?api-version={APIM_API_VERSION}"
+        data = self._make_request(url)
+
+        if data is None:
+            return None, "Failed to query identity providers"
+
+        if data.get("_not_found"):
+            self.log_safe("identityProviders/basic does NOT exist")
+            return False, "Basic Auth identity provider not configured"
+
+        self.log_vuln("identityProviders/basic EXISTS - Basic Auth is configured!")
+        return True, "Basic Auth identity provider is configured"
+
+    def check_signup_settings(self) -> Tuple[Optional[bool], str, Optional[bool]]:
+        """
+        Check portal signup settings.
+
+        Returns:
+            Tuple of (signup_disabled_in_ui, message, enabled_value)
+        """
+        self.log_check("Checking portal signup settings...")
+
+        url = f"{self.base_url}/portalsettings/signup?api-version={APIM_API_VERSION}"
+        data = self._make_request(url)
+
+        if data is None:
+            return None, "Failed to query signup settings", None
+
+        if data.get("_not_found"):
+            return None, "Signup settings not found", None
+
+        properties = data.get("properties", {})
+        enabled = properties.get("enabled")
+
+        if enabled is True:
+            self.log_info("portalsettings/signup.properties.enabled = true (signup visible in UI)")
+            return False, "Signup is enabled in UI", True
+        elif enabled is False:
+            self.log_vuln("portalsettings/signup.properties.enabled = false (signup hidden but API may still work!)")
+            return True, "Signup is HIDDEN in UI (bypass possible)", False
+        else:
+            return None, f"Signup enabled value: {enabled}", enabled
+
+    def check_vulnerability(self) -> Dict[str, Any]:
+        """
+        Perform comprehensive Azure RM property checks.
+
+        Returns:
+            Dictionary with all check results and vulnerability assessment
+        """
+        results = {
+            "subscription_id": self.subscription_id,
+            "resource_group": self.resource_group,
+            "service_name": self.service_name,
+            "vulnerable": False,
+            "risk_level": "Unknown",
+            "checks": {},
+            "properties": {}
+        }
+
+        # Check 1: APIM service properties
+        props_vuln, props_msg, props_data = self.check_apim_properties()
+        results["checks"]["apim_properties"] = {
+            "status": props_vuln,
+            "message": props_msg
+        }
+        results["properties"].update(props_data)
+
+        if props_vuln is None:
+            results["risk_level"] = "Error"
+            return results
+
+        # Check 2: Basic Auth identity provider
+        basic_exists, basic_msg = self.check_basic_identity_provider()
+        results["checks"]["basic_auth_provider"] = {
+            "status": basic_exists,
+            "message": basic_msg
+        }
+        results["properties"]["basic_auth_exists"] = basic_exists
+
+        if basic_exists is None:
+            results["risk_level"] = "Error"
+            return results
+
+        if not basic_exists:
+            results["risk_level"] = "Low"
+            results["checks"]["assessment"] = {
+                "status": False,
+                "message": "No Basic Auth configured - not vulnerable"
+            }
+            return results
+
+        # Check 3: Signup settings (only relevant if Basic Auth exists)
+        signup_hidden, signup_msg, signup_enabled = self.check_signup_settings()
+        results["checks"]["signup_settings"] = {
+            "status": signup_hidden,
+            "message": signup_msg
+        }
+        results["properties"]["signup_enabled"] = signup_enabled
+
+        # Determine vulnerability
+        if props_vuln and basic_exists:
+            if signup_hidden:
+                # Critical: Portal enabled + Basic Auth exists + Signup hidden = VULNERABLE
+                results["vulnerable"] = True
+                results["risk_level"] = "Critical"
+                results["checks"]["assessment"] = {
+                    "status": True,
+                    "message": "VULNERABLE: Signup hidden in UI but Basic Auth API still accessible"
+                }
+            else:
+                # Basic Auth enabled and signup visible - attack source
+                results["risk_level"] = "Attack Source"
+                results["checks"]["assessment"] = {
+                    "status": True,
+                    "message": "Basic Auth signup enabled - can be used for cross-tenant attacks"
+                }
+        else:
+            results["risk_level"] = "Low"
+            results["checks"]["assessment"] = {
+                "status": False,
+                "message": "Configuration appears safe"
+            }
+
+        return results
+
+
+def print_azure_rm_results(results: Dict[str, Any]):
+    """Print Azure RM check results."""
+    print(f"\n{Fore.CYAN}{'='*70}")
+    print("AZURE RESOURCE MANAGER PROPERTY CHECK RESULTS")
+    print(f"{'='*70}{Style.RESET_ALL}\n")
+
+    print(f"Subscription: {results['subscription_id']}")
+    print(f"Resource Group: {results['resource_group']}")
+    print(f"Service Name: {results['service_name']}\n")
+
+    # Risk level
+    risk = results['risk_level']
+    if risk == 'Critical':
+        print(f"Risk Level: {Fore.RED}CRITICAL - VULNERABLE TO SIGNUP BYPASS{Style.RESET_ALL}")
+    elif risk == 'Attack Source':
+        print(f"Risk Level: {Fore.YELLOW}ATTACK SOURCE - CAN BE USED FOR CROSS-TENANT BYPASS{Style.RESET_ALL}")
+    elif risk == 'Error':
+        print(f"Risk Level: {Fore.RED}ERROR - COULD NOT COMPLETE CHECKS{Style.RESET_ALL}")
+    else:
+        print(f"Risk Level: {Fore.GREEN}LOW - NOT VULNERABLE{Style.RESET_ALL}")
+
+    # Properties
+    print(f"\n{Fore.CYAN}Resource Properties:{Style.RESET_ALL}\n")
+    props = results.get('properties', {})
+    for key, value in props.items():
+        if key == 'basic_auth_exists' and value:
+            print(f"  {Fore.RED}[!]{Style.RESET_ALL} {key}: {value}")
+        elif key == 'signup_enabled' and value is False:
+            print(f"  {Fore.RED}[!]{Style.RESET_ALL} {key}: {value}")
+        elif key == 'developerPortalStatus' and value == 'Enabled':
+            print(f"  {Fore.YELLOW}[i]{Style.RESET_ALL} {key}: {value}")
+        else:
+            print(f"  {Fore.GREEN}[+]{Style.RESET_ALL} {key}: {value}")
+
+    # Assessment
+    print(f"\n{Fore.CYAN}Vulnerability Assessment:{Style.RESET_ALL}\n")
+    for check_name, check_data in results['checks'].items():
+        status = check_data['status']
+        message = check_data['message']
+
+        if status is True:
+            print(f"  {Fore.RED}[!]{Style.RESET_ALL} {check_name}: {message}")
+        elif status is False:
+            print(f"  {Fore.GREEN}[+]{Style.RESET_ALL} {check_name}: {message}")
+        else:
+            print(f"  {Fore.YELLOW}[?]{Style.RESET_ALL} {check_name}: {message}")
+
+    print(f"\n{Fore.CYAN}{'='*70}{Style.RESET_ALL}\n")
 
 
 class APIMVulnerabilityChecker:
@@ -353,11 +653,25 @@ def print_results(results: dict):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Check if Azure APIM instance is vulnerable to cross-tenant signup bypass'
+        description='Check if Azure APIM instance is vulnerable to cross-tenant signup bypass',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # HTTP probe (external check)
+  python apim_vuln_checker.py https://your-apim.developer.azure-api.net
+
+  # Azure RM property check (requires az login)
+  python apim_vuln_checker.py --azure -s <subscription-id> -g <resource-group> -n <apim-name>
+
+  # Combined check (both HTTP probe and Azure RM)
+  python apim_vuln_checker.py https://your-apim.developer.azure-api.net --azure -s <sub> -g <rg> -n <name>
+"""
     )
 
     parser.add_argument(
         'url',
+        nargs='?',
+        default=None,
         help='APIM Developer Portal URL (e.g., https://your-apim.developer.azure-api.net)'
     )
 
@@ -379,7 +693,34 @@ def main():
         help='Skip SSL certificate verification'
     )
 
+    # Azure RM arguments
+    azure_group = parser.add_argument_group('Azure Resource Manager', 'Check APIM properties directly via Azure RM API')
+    azure_group.add_argument(
+        '--azure',
+        action='store_true',
+        help='Enable Azure RM property checks (requires azure-identity package and az login)'
+    )
+    azure_group.add_argument(
+        '-s', '--subscription',
+        help='Azure subscription ID'
+    )
+    azure_group.add_argument(
+        '-g', '--resource-group',
+        help='Azure resource group name'
+    )
+    azure_group.add_argument(
+        '-n', '--name',
+        help='APIM service name'
+    )
+
     args = parser.parse_args()
+
+    # Validate arguments
+    if not args.url and not args.azure:
+        parser.error("Either URL or --azure with -s/-g/-n is required")
+
+    if args.azure and not all([args.subscription, args.resource_group, args.name]):
+        parser.error("--azure requires -s/--subscription, -g/--resource-group, and -n/--name")
 
     # Banner
     print(f"{Fore.CYAN}")
@@ -396,19 +737,45 @@ def main():
     print("Cross-Tenant Signup Bypass Detection")
     print(f"{'=' * 70}{Style.RESET_ALL}\n")
 
-    # Run checks
-    checker = APIMVulnerabilityChecker(args.url, verbose=args.verbose, verify_ssl=not args.insecure)
-    results = checker.check_vulnerability()
+    all_results = {}
+    is_vulnerable = False
 
-    # Output results
+    # Run HTTP probe checks if URL provided
+    if args.url:
+        checker = APIMVulnerabilityChecker(args.url, verbose=args.verbose, verify_ssl=not args.insecure)
+        http_results = checker.check_vulnerability()
+        all_results['http_probe'] = http_results
+        is_vulnerable = is_vulnerable or http_results.get('vulnerable', False)
+
+        if not args.json:
+            print_results(http_results)
+
+    # Run Azure RM property checks if enabled
+    if args.azure:
+        print(f"\n{Fore.CYAN}{'=' * 70}")
+        print("AZURE RESOURCE MANAGER PROPERTY CHECKS")
+        print(f"{'=' * 70}{Style.RESET_ALL}\n")
+
+        azure_checker = AzureRMChecker(
+            subscription_id=args.subscription,
+            resource_group=args.resource_group,
+            service_name=args.name,
+            verbose=args.verbose
+        )
+        azure_results = azure_checker.check_vulnerability()
+        all_results['azure_rm'] = azure_results
+        is_vulnerable = is_vulnerable or azure_results.get('vulnerable', False)
+
+        if not args.json:
+            print_azure_rm_results(azure_results)
+
+    # Output JSON if requested
     if args.json:
         import json
-        print(json.dumps(results, indent=2))
-    else:
-        print_results(results)
+        print(json.dumps(all_results, indent=2))
 
     # Exit code based on vulnerability
-    exit(0 if not results['vulnerable'] else 1)
+    exit(0 if not is_vulnerable else 1)
 
 
 if __name__ == '__main__':

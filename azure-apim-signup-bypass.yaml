@@ -32,7 +32,7 @@ info:
     product: azure-api-management
     shodan-query: ssl.cert.subject.cn:"developer.azure-api.net" http.status:200
     fofa-query: cert.subject="developer.azure-api.net"
-    google-dork: site:*.developer.azure-api.net inurl:signup
+    google-dork: site:*.developer.azure-api.net inurl:signin
   tags: azure,apim,bypass,authentication,misconfiguration
 
 http:

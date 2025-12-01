@@ -183,43 +183,78 @@ az rest --method get --url "https://management.azure.com/subscriptions/<sub-id>/
 
 ### Google Dorks
 
-Azure APIM Developer Portals use a consistent URL pattern. Use these dorks to discover exposed instances:
+**Find portals with Basic Auth signup (most likely vulnerable):**
+```
+site:developer.azure-api.net "Sign up" "Email" "Password"
+```
 
 ```
-site:developer.azure-api.net
+site:developer.azure-api.net "Create account" "Username"
 ```
 
+```
+site:developer.azure-api.net inurl:/signup "register"
+```
+
+**Find portals with signin pages (indicates Basic Auth may be configured):**
+```
+site:developer.azure-api.net "Sign in" "Email" "Password" -"Azure AD" -"Microsoft account"
+```
+
+```
+site:developer.azure-api.net inurl:/signin "password"
+```
+
+**Find developer portals with exposed API documentation:**
+```
+site:developer.azure-api.net inurl:/apis "Subscribe"
+```
+
+```
+site:developer.azure-api.net "API" "Products" "Subscribe"
+```
+
+**General discovery:**
 ```
 site:*.developer.azure-api.net
 ```
 
 ```
-inurl:developer.azure-api.net
-```
-
-To find portals with signup pages:
-```
-site:developer.azure-api.net inurl:/signup
-```
-
-To find portals with visible APIs:
-```
-site:developer.azure-api.net inurl:/apis
+inurl:developer.azure-api.net "Developer Portal"
 ```
 
 ### Shodan
 
+**Find APIM Developer Portals:**
 ```
-http.html:"developer.azure-api.net"
+http.title:"Developer Portal" http.html:"azure-api.net"
 ```
 
 ```
 ssl.cert.subject.cn:"*.developer.azure-api.net"
 ```
 
+```
+http.html:"developerPortal" http.html:"azure"
+```
+
+### Nuclei Mass Scan
+
+After discovering targets, scan with Nuclei:
+```bash
+# Save targets to file
+echo "https://target1.developer.azure-api.net" > targets.txt
+echo "https://target2.developer.azure-api.net" >> targets.txt
+
+# Mass scan
+nuclei -t azure-apim-signup-bypass.yaml -l targets.txt -o vulnerable.txt
+```
+
 ### Notes
 
-- Not all discovered instances are vulnerable - they must have Basic Authentication configured
+- Dorks targeting "Sign up" + "Password" are most likely to find Basic Auth enabled portals
+- Portals showing only "Sign in with Microsoft" or "Azure AD" are NOT vulnerable
+- The vulnerability requires Basic Authentication - look for email/password signup forms
 - Use the verification script or Nuclei template to confirm vulnerability
 - Always obtain proper authorization before testing third-party systems
 

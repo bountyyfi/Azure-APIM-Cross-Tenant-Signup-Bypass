@@ -183,6 +183,75 @@ az rest --method get --url "https://management.azure.com/subscriptions/<sub-id>/
 
 > **LEGAL DISCLAIMER:** The information below is provided solely for identifying and securing your own organization's Azure APIM instances. Unauthorized access to computer systems is illegal. Only test systems you own or have explicit written authorization to test.
 
+### Google Dorks
+
+**Find portals with Basic Auth signup (most likely vulnerable):**
+```
+site:developer.azure-api.net "Sign up" "Email" "Password"
+```
+
+```
+site:developer.azure-api.net "Create account" "Username"
+```
+
+```
+site:developer.azure-api.net inurl:/signup "register"
+```
+
+**Find portals with signin pages (indicates Basic Auth may be configured):**
+```
+site:developer.azure-api.net "Sign in" "Email" "Password" -"Azure AD" -"Microsoft account"
+```
+
+```
+site:developer.azure-api.net inurl:/signin "password"
+```
+
+**Find developer portals with exposed API documentation:**
+```
+site:developer.azure-api.net inurl:/apis "Subscribe"
+```
+
+```
+site:developer.azure-api.net "API" "Products" "Subscribe"
+```
+
+**General discovery:**
+```
+site:*.developer.azure-api.net
+```
+
+```
+inurl:developer.azure-api.net "Developer Portal"
+```
+
+### Shodan
+
+**Find APIM Developer Portals:**
+```
+http.title:"Developer Portal" http.html:"azure-api.net"
+```
+
+```
+ssl.cert.subject.cn:"*.developer.azure-api.net"
+```
+
+```
+http.html:"developerPortal" http.html:"azure"
+```
+
+### Nuclei Mass Scan
+
+After discovering targets, scan with Nuclei:
+```bash
+# Save targets to file
+echo "https://target1.developer.azure-api.net" > targets.txt
+echo "https://target2.developer.azure-api.net" >> targets.txt
+
+# Mass scan
+nuclei -t azure-apim-signup-bypass.yaml -l targets.txt -o vulnerable.txt
+```
+
 ### Asset Discovery for Your Organization
 
 If your organization uses Azure APIM, you can identify your own instances using:

@@ -1,5 +1,7 @@
 # Azure APIM Cross-Tenant Signup Bypass
 
+> **Status (01.12.2025):** This vulnerability is still live and exploitable. Microsoft has not patched this issue and considers it "by design."
+
 ## Security Advisory
 
 **[GHSA-vcwf-73jp-r7mv](https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass/security/advisories/GHSA-vcwf-73jp-r7mv)**
@@ -176,6 +178,50 @@ az rest --method get --url "https://management.azure.com/subscriptions/<sub-id>/
 - `properties.developerPortalStatus == 'Enabled'` AND
 - `identityProviders/basic` resource exists AND
 - `portalsettings/signup.properties.enabled == false`
+
+## Finding Vulnerable Instances
+
+### Google Dorks
+
+Azure APIM Developer Portals use a consistent URL pattern. Use these dorks to discover exposed instances:
+
+```
+site:developer.azure-api.net
+```
+
+```
+site:*.developer.azure-api.net
+```
+
+```
+inurl:developer.azure-api.net
+```
+
+To find portals with signup pages:
+```
+site:developer.azure-api.net inurl:/signup
+```
+
+To find portals with visible APIs:
+```
+site:developer.azure-api.net inurl:/apis
+```
+
+### Shodan
+
+```
+http.html:"developer.azure-api.net"
+```
+
+```
+ssl.cert.subject.cn:"*.developer.azure-api.net"
+```
+
+### Notes
+
+- Not all discovered instances are vulnerable - they must have Basic Authentication configured
+- Use the verification script or Nuclei template to confirm vulnerability
+- Always obtain proper authorization before testing third-party systems
 
 ## Verification Script
 

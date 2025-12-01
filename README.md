@@ -179,84 +179,73 @@ az rest --method get --url "https://management.azure.com/subscriptions/<sub-id>/
 - `identityProviders/basic` resource exists AND
 - `portalsettings/signup.properties.enabled == false`
 
-## Finding Vulnerable Instances
+## Identifying Your Organization's APIM Instances
 
-### Google Dorks
+> **LEGAL DISCLAIMER:** The information below is provided solely for identifying and securing your own organization's Azure APIM instances. Unauthorized access to computer systems is illegal. Only test systems you own or have explicit written authorization to test.
 
-**Find portals with Basic Auth signup (most likely vulnerable):**
-```
-site:developer.azure-api.net "Sign up" "Email" "Password"
-```
+### Asset Discovery for Your Organization
 
-```
-site:developer.azure-api.net "Create account" "Username"
-```
+If your organization uses Azure APIM, you can identify your own instances using:
 
-```
-site:developer.azure-api.net inurl:/signup "register"
-```
+**Azure Portal:**
+- Navigate to Azure Portal → All Resources → Filter by "API Management"
+- Or use Azure Resource Graph Explorer with the queries in the previous section
 
-**Find portals with signin pages (indicates Basic Auth may be configured):**
-```
-site:developer.azure-api.net "Sign in" "Email" "Password" -"Azure AD" -"Microsoft account"
-```
-
-```
-site:developer.azure-api.net inurl:/signin "password"
-```
-
-**Find developer portals with exposed API documentation:**
-```
-site:developer.azure-api.net inurl:/apis "Subscribe"
-```
-
-```
-site:developer.azure-api.net "API" "Products" "Subscribe"
-```
-
-**General discovery:**
-```
-site:*.developer.azure-api.net
-```
-
-```
-inurl:developer.azure-api.net "Developer Portal"
-```
-
-### Shodan
-
-**Find APIM Developer Portals:**
-```
-http.title:"Developer Portal" http.html:"azure-api.net"
-```
-
-```
-ssl.cert.subject.cn:"*.developer.azure-api.net"
-```
-
-```
-http.html:"developerPortal" http.html:"azure"
-```
-
-### Nuclei Mass Scan
-
-After discovering targets, scan with Nuclei:
+**Azure CLI (for your subscriptions):**
 ```bash
-# Save targets to file
-echo "https://target1.developer.azure-api.net" > targets.txt
-echo "https://target2.developer.azure-api.net" >> targets.txt
-
-# Mass scan
-nuclei -t azure-apim-signup-bypass.yaml -l targets.txt -o vulnerable.txt
+# List all APIM instances in your subscriptions
+az apim list --query "[].{name:name, resourceGroup:resourceGroup, url:developerPortalUrl}"
 ```
 
-### Notes
+### Verifying Your Own Instances
 
-- Dorks targeting "Sign up" + "Password" are most likely to find Basic Auth enabled portals
-- Portals showing only "Sign in with Microsoft" or "Azure AD" are NOT vulnerable
-- The vulnerability requires Basic Authentication - look for email/password signup forms
-- Use the verification script or Nuclei template to confirm vulnerability
-- Always obtain proper authorization before testing third-party systems
+Use these methods to check if YOUR organization's APIM instances are vulnerable:
+
+**Using the verification script:**
+```bash
+# Check your own instance
+python apim_vuln_checker.py https://YOUR-ORG.developer.azure-api.net
+
+# With Azure RM property checks (recommended for internal audits)
+python apim_vuln_checker.py --azure -s YOUR-SUB-ID -g YOUR-RG -n YOUR-APIM-NAME
+```
+
+**Using Nuclei for internal security audits:**
+```bash
+# Scan your organization's APIM instances
+nuclei -t azure-apim-signup-bypass.yaml -u https://YOUR-ORG.developer.azure-api.net
+```
+
+### Indicators of Vulnerable Configuration
+
+When auditing your own instances, look for:
+
+- Developer Portal shows "Sign up" with Email/Password fields (not just "Sign in with Microsoft")
+- Basic Authentication identity provider is configured in Azure Portal
+- Signup is "disabled" in UI but Basic Auth provider still exists
+
+**NOT vulnerable indicators:**
+- Only "Sign in with Microsoft" or "Azure AD" options visible
+- No Basic Authentication identity provider configured
+- Developer Portal is disabled entirely
+
+### Authorized Penetration Testing
+
+If you are a security professional conducting authorized testing:
+
+1. Ensure you have **written authorization** from the system owner
+2. Document the scope and boundaries of your engagement
+3. Follow responsible disclosure practices
+4. Report findings to the organization, not publicly exploit them
+
+### Responsible Disclosure
+
+If you discover a vulnerable third-party APIM instance:
+
+1. **DO NOT** attempt to create accounts or access the system
+2. Contact the organization's security team directly
+3. Provide them with this advisory so they can remediate
+4. Allow reasonable time for remediation before any disclosure
 
 ## Verification Script
 

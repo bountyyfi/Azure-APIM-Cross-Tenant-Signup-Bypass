@@ -1,23 +1,35 @@
-
-id: azure-apim-cross-tenant-signup-bypass
+id: azure-apim-signup-bypass
 
 info:
-  name: Azure APIM Cross-Tenant Signup Bypass
-  author: Mihalis Haatainen (Bountyy Oy) - www.bountyy.fi
+  name: Azure API Management - Cross-Tenant Signup Bypass
+  author: bountyyfi
   severity: high
   description: |
-    Azure API Management Developer Portal allows cross-tenant account registration 
+    Azure API Management Developer Portal allows cross-tenant account registration
     by bypassing UI signup restrictions. When Basic Authentication is configured,
     the signup API remains accessible even if administrators disable signup in the UI.
     Attackers can intercept signup requests from one portal and change the Host header
     to target a different APIM instance.
-  reference:
-    - https://github.com/bountyy/Azure-APIM-Cross-Tenant-Signup-Bypass
-    - https://www.bountyy.fi
+  impact: |
+    An attacker can create unauthorized accounts on any Azure APIM Developer Portal
+    that has Basic Authentication configured, even when signup is disabled in the UI.
+    This can lead to unauthorized access to API documentation, subscription keys,
+    and other resources exposed through the Developer Portal.
   remediation: |
     Remove the Basic Authentication identity provider completely from Azure Portal.
     Navigate to APIM instance -> Developer Portal -> Identities -> Delete "Username and password".
-  tags: azure,apim,bypass,authentication,misconfiguration
+  reference:
+    - https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass
+    - https://www.bountyy.fi
+  classification:
+    cwe-id: CWE-284
+  metadata:
+    verified: true
+    max-request: 1
+    vendor: microsoft
+    product: azure-api-management
+    shodan-query: http.html:"developer.azure-api.net"
+  tags: azure,apim,bypass,auth-bypass,microsoft,misconfig
 
 http:
   - method: POST

@@ -6,7 +6,7 @@
 
 **[GHSA-vcwf-73jp-r7mv](https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass/security/advisories/GHSA-vcwf-73jp-r7mv)**
 
-**CVE-2025-66390**
+**[CVE-2025-66390](https://www.cve.org/CVERecord?id=CVE-2025-66390)**
 
 ## Summary
 

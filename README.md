@@ -6,6 +6,8 @@
 
 **[GHSA-vcwf-73jp-r7mv](https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass/security/advisories/GHSA-vcwf-73jp-r7mv)**
 
+**CVE-2025-66390**
+
 ## Summary
 
 A security vulnerability in Azure API Management (APIM) Developer Portal allows attackers to register accounts on any APIM instance that has Basic Authentication enabled, even when administrators have disabled user signup in the portal UI.
@@ -24,6 +26,7 @@ This bypass enables cross-tenant account creation, potentially allowing unauthor
 |2025-11-20|Reported to CERT-FI                                    |
 |2025-11-26|Public disclosure                                      |
 |2025-11-27|CVE requested from MITRE                               |
+|2026-07-09|CVE-2025-66390 assigned by MITRE TL-Root/CNA-LR        |
 
 ## Vulnerability Details
 
